@@ -1,11 +1,70 @@
 import math
 import sys
+import os
 
 def main():
 
+	filename = sys.argv[1]
+	path = os.path.dirname(sys.argv[1])
+	index_file = path + '\\index.bin'
+	files = []
+	index_list = []
+	
+	if not os.path.exists(path + '\\decoded\\'):
+		os.makedirs(path + '\\decoded\\')
+	
+	all_files = False
+	for x in range(1,len(sys.argv)):
+		if sys.argv[x] == '-a':
+			all_files = True
+
+	if all_files:
+		with open(index_file,'rb') as f:
+			while (byte:= f.read(1)):
+				index_list.append(int.from_bytes(byte, "big"))
+				if (len(index_list))%16==0 and len(index_list)!=0:
+					temp ='FILE_'
+					for y in range(4):
+						temp_hex = str(hex(index_list[y]).replace('0x',''))
+						if len(temp_hex)==1:
+							temp_hex = '0'+temp_hex
+						temp+= temp_hex
+					files.append([sys.argv[1]+temp.upper(), index_list[8]])
+				if len(index_list)==16: index_list = []
+	
+	else:
+		with open(index_file,'rb') as f:
+			while (byte:= f.read(1)):
+				index_list.append(int.from_bytes(byte, "big"))
+				if (len(index_list))%16==0 and len(index_list)!=0:
+					temp ='FILE_'
+					for y in range(4):
+						temp_hex = str(hex(index_list[y]).replace('0x',''))
+						if len(temp_hex)==1:
+							temp_hex = '0'+temp_hex
+						temp+= temp_hex
+					if temp.upper() == sys.argv[1][-13:]:
+						files.append([sys.argv[1], index_list[8]])
+						break
+				if len(index_list)==16: index_list = []
+
+	for x in range(len(files)):
+		if files[x][1] == 3:
+			print("Decompressing " + str(os.path.basename(files[x][0])) + ' with LZSS and Range encoding')
+			try:
+				lzss_re(files[x][0])
+			except:
+				pass
+		elif files[x][1] == 1:
+			print("Decompressing " + str(os.path.basename(files[x][0])) + ' with LZSS')
+			try:
+				lzss(files[x][0])
+			except:	
+				pass
+
+def lzss_re(filename):
 	table1 = []
 	table4 = []
-	filename = sys.argv[1]
 	with open(filename,'rb') as f:
 		byte_count = 0
 		while (byte:= f.read(1)):
@@ -24,8 +83,9 @@ def main():
 				table4.append(byte)
 			byte_count +=1
 	
-
-	outfile2 = open(filename + '_decoded','wb')
+	fileout = os.path.dirname(filename)+ '\\decoded\\' + os.path.basename(filename) + '_decoded'
+	
+	outfile2 = open(fileout,'wb')
 
 	hex_c = 0
 
@@ -90,10 +150,7 @@ def main():
 		t4=table2[t3]
 		
 		a = t4*b + a
-
 		b = table1[t3]*b
-	
-
 
 		if option == 2: 
 			store2 = decoded
@@ -116,8 +173,6 @@ def main():
 			else:
 				option = next_option(store,store_c)
 
-
-				
 		elif option == 3: 
 			t2 = mask_high(decoded,4) +3
 			loop_counter = t2<<31>>32
@@ -218,7 +273,96 @@ def main():
 			a =a<<8
 			a=mask_high(a,32)
 
+def lzss(filename):
+	
+	fileout = os.path.dirname(filename)+ '\\decoded\\' + os.path.basename(filename) + '_decoded'
+	outfile2 = open(fileout,'wb')
 
+	option = 0 # starting value
+	store_c = 1
+	cache_c = 0XFEE
+
+	cache = []
+	for x in range(4096):
+		cache.append(0) 
+
+	with open(filename,'rb') as f:
+		byte_count = 0
+		while (byte:= f.read(1)):
+			decoded = int.from_bytes(byte, "big")
+			
+			if option == 2: 
+				store2 = decoded
+				option = 3	
+			
+			elif option ==0: 
+				store = decoded
+				option = next_option(decoded,1)
+		
+			elif option == 1: 
+				outfile2.write(decoded.to_bytes(1,'big'))
+				cache[cache_c] = decoded
+				cache_c += 1
+				if cache_c == 4096:
+					cache_c = 0
+				store_c *= 2
+				if store_c ==256:
+					store_c = 1
+					option = 0
+				else:
+					option = next_option(store,store_c)
+
+			elif option == 3: 
+				t2 = mask_high(decoded,4) +3
+				loop_counter = t2<<31>>32
+				loop_extra = t2%2
+				t1 = decoded>>4<<8
+				index = store2 + t1
+
+				for x in range(loop_counter):
+					outfile2.write(cache[index].to_bytes(1,'big'))
+					cache[cache_c] = cache[index]
+					
+					index+=1
+					if index == 4096:
+						index = 0
+					
+					cache_c += 1
+					if cache_c == 4096:
+						cache_c = 0
+					
+
+					outfile2.write(cache[index].to_bytes(1,'big'))
+					cache[cache_c] = cache[index]
+					
+					index+=1
+					if index == 4096:
+						index = 0
+
+					cache_c += 1
+					if cache_c == 4096:
+						cache_c = 0
+				if loop_counter==0:
+					loop_extra==1
+				
+				if loop_extra == 1:
+					outfile2.write(cache[index].to_bytes(1,'big'))
+					cache[cache_c] = cache[index]
+					
+					index+=1
+					if index == 4096:
+						index = 0
+					
+					cache_c += 1
+					if cache_c == 4096:
+						cache_c = 0
+						
+				store_c *= 2
+				if store_c ==256:
+					store_c = 1
+					option = 0
+				else:
+					option = next_option(store,store_c)
 	
 
 def next_option(decoded,compare):
